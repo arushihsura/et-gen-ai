@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My ET - AI Newsroom</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <header class="hero">
+      <p class="eyebrow">AI-FIRST BUSINESS NEWS</p>
+      <h1>My ET</h1>
+      <p class="subtitle">A personalized newsroom that thinks before you scroll.</p>
+    </header>
+
+    <main class="layout">
+      <section class="panel profile-panel">
+        <h2>Profile Setup</h2>
+        <div class="form-grid">
+          <label>User ID <input id="userId" placeholder="u1" value="u1" /></label>
+          <label>Persona <input id="persona" placeholder="Mutual fund investor" value="Mutual fund investor" /></label>
+          <label>Sectors <input id="sectors" placeholder="banking,it,energy" value="banking,it,energy" /></label>
+          <label>Interests <input id="interests" placeholder="budget,valuation,earnings" value="budget,valuation,earnings" /></label>
+          <label>Portfolio Symbols <input id="portfolioSymbols" placeholder="HDFC,TCS" value="HDFC,TCS" /></label>
+          <label>Risk Appetite
+            <select id="riskAppetite">
+              <option value="low">low</option>
+              <option value="medium" selected>medium</option>
+              <option value="high">high</option>
+            </select>
+          </label>
+          <label>Horizon
+            <select id="horizon">
+              <option value="short-term">short-term</option>
+              <option value="long-term" selected>long-term</option>
+            </select>
+          </label>
+        </div>
+        <button id="saveProfileBtn" class="btn primary">Save Profile</button>
+      </section>
+
+      <section class="panel feed-panel">
+        <div class="panel-head">
+          <h2>My ET Feed</h2>
+          <button id="loadFeedBtn" class="btn">Load Personalized Feed</button>
+        </div>
+        <div id="feed" class="feed-list"></div>
+      </section>
+
+      <section class="panel briefing-panel">
+        <div class="panel-head">
+          <h2>Interactive Briefing</h2>
+          <button id="summarizeBtn" class="btn">Generate Briefing</button>
+        </div>
+        <label>Article URL <input id="articleUrl" placeholder="https://economictimes..." /></label>
+        <label>Mode
+          <select id="mode">
+            <option value="brief">brief</option>
+            <option value="detailed" selected>detailed</option>
+          </select>
+        </label>
+        <div id="summaryResult" class="result"></div>
+      </section>
+
+      <section class="panel chat-panel">
+        <div class="panel-head">
+          <h2>Ask Anything</h2>
+          <button id="askBtn" class="btn">Ask</button>
+        </div>
+        <label>Question <input id="question" placeholder="Should I invest now?" value="Should I invest now?" /></label>
+        <label>Article Context <textarea id="chatArticle" rows="5" placeholder="Paste article text from briefing..."></textarea></label>
+        <div id="chatAnswer" class="result"></div>
+      </section>
+
+      <section class="panel history-panel">
+        <div class="panel-head">
+          <h2>Session Memory</h2>
+          <button id="loadHistoryBtn" class="btn">Load History</button>
+        </div>
+        <div class="history-grid">
+          <div>
+            <h3>Summary History</h3>
+            <div id="summaryHistory" class="history-list"></div>
+          </div>
+          <div>
+            <h3>Chat History</h3>
+            <div id="chatHistory" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

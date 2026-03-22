@@ -1,0 +1,38 @@
+:root {
+  --bg: #0f0f0f;
+  --card: #1a1a1a;
+  --ink: #f4f4f4;
+  --muted: #9a9a9a;
+  --brand: #e8d8a9;
+  --line: #2b2b2b;
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+  --risk-high: #d0392f;
+  --risk-medium: #d9a40d;
+  --risk-low: #2e8b57;
+  --serif: "Instrument Serif", Georgia, serif;
+  --sans: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: radial-gradient(circle at 10% 10%, #2a1f15 0%, transparent 35%),
+    radial-gradient(circle at 90% 20%, #17332f 0%, transparent 38%),
+    var(--bg);
+  line-height: 1.45;
+}
+
+a {
+  color: inherit;
+}
