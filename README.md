@@ -1,51 +1,17 @@
 # AI News
 
-AI News is a full-stack news intelligence app with a React frontend and an Express backend.
-It fetches financial news, summarizes content, powers chat/Q&A, personalizes feeds, and generates briefing/video-style outputs.
+AI News is a full-stack business news intelligence application.
 
-## Project Structure
+It combines:
+- A React + Vite frontend
+- An Express backend
+- Groq-powered analysis, briefing, and translation
+- SQLite persistence
+- ffmpeg-based media rendering
 
-```text
-ai-news/
-  backend/      # Express API, scraping, AI services, SQLite persistence, media rendering
-  frontend/     # React + Vite UI
-```
+## Quick Start
 
-## Tech Stack
-
-- Frontend: React, React Router, Vite
-- Backend: Node.js, Express
-- Data: SQLite
-- AI: Groq models
-- Media: ffmpeg-static, Google TTS
-
-## Prerequisites
-
-- Node.js 18+
-- npm
-- Internet access for scraping and AI requests
-
-## Environment Variables
-
-Create `backend/.env` with values similar to:
-
-```env
-GROQ_API_KEY=your_api_key_here
-GROQ_MODEL=llama-3.1-8b-instant
-GROQ_CHAT_MODEL=llama-3.1-8b-instant
-DB_PATH=
-```
-
-Notes:
-- `GROQ_API_KEY` is required for AI features.
-- Video Studio uses Groq for script generation and free Google TTS for narration.
-- `DB_PATH` is optional. If empty, the app uses `backend/data/ai-news.db`.
-- Frontend API target defaults to `http://localhost:5000`.
-- To override frontend API base URL, set `VITE_API_BASE` in frontend env.
-
-## Install
-
-Install dependencies in both apps:
+1. Install dependencies.
 
 ```bash
 cd backend
@@ -55,79 +21,188 @@ cd ../frontend
 npm install
 ```
 
-## Run in Development
+2. Configure environment variables in backend/.env.
 
-Use two terminals.
+```env
+GROQ_API_KEY=your_key_here
+GROQ_MODEL=llama-3.1-8b-instant
+GROQ_CHAT_MODEL=llama-3.1-8b-instant
+DB_PATH=
+```
 
-Terminal 1 (backend):
+3. Start backend and frontend in separate terminals.
+
+Terminal A:
 
 ```bash
 cd backend
 npm run dev
 ```
 
-Terminal 2 (frontend):
+Terminal B:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-- Backend runs on port `5000`.
-- Frontend runs on Vite dev server (typically `5173`).
+4. Open the Vite URL printed in the frontend terminal.
 
-## Build Frontend
+## Project Structure
 
-From frontend:
+```text
+ai-news/
+  backend/
+    server.js
+    package.json
+    services/
+    routes/
+    data/
+    media/
+  frontend/
+    src/
+    public/
+    package.json
+  README.md
+```
+
+## Configuration
+
+### Backend
+
+- GROQ_API_KEY: Required for AI routes.
+- GROQ_MODEL: Primary model for structured intelligence tasks.
+- GROQ_CHAT_MODEL: Model used for chat-like tasks.
+- DB_PATH: Optional SQLite file path.
+
+If DB_PATH is empty, the app uses backend/data/ai-news.db.
+
+### Frontend
+
+- Default API base is http://localhost:5000.
+- Optional override: set VITE_API_BASE in frontend environment.
+
+## Development Commands
+
+### Backend
+
+```bash
+npm run start        # Node server
+npm run dev          # Nodemon server
+npm run client:dev   # Start frontend dev server from backend folder
+npm run client:build # Build frontend from backend folder
+```
+
+### Frontend
+
+```bash
+npm run dev      # Vite dev server
+npm run build    # Production build
+npm run preview  # Preview production build
+npm run lint     # Lint checks
+```
+
+## Build and Validation Workflow
+
+### Frontend Build
 
 ```bash
 cd frontend
 npm run build
 ```
 
-Or from backend convenience script:
+### Backend Syntax Validation
 
 ```bash
 cd backend
-npm run client:build
+node --check server.js
+node --check services/intelligenceService.js
+node --check services/videoRenderer.js
 ```
 
-## Backend Scripts
+### API Smoke Checks (Optional)
 
-In `backend/package.json`:
+Run after backend starts:
 
-- `npm run start` - Start backend with Node
-- `npm run dev` - Start backend with nodemon
-- `npm run client:dev` - Run frontend dev server from backend folder
-- `npm run client:build` - Build frontend from backend folder
+```bash
+# Example (PowerShell)
+Invoke-WebRequest -Method Post -Uri "http://localhost:5000/story-arc" -ContentType "application/json" -Body '{"topic":"Markets","url":"https://economictimes.indiatimes.com/markets/stocks/news"}'
+```
 
-## API Overview
+## Core API Surface
 
-Base URL: `http://localhost:5000`
+Base URL: http://localhost:5000
 
-- `POST /profile`
-- `GET /profile/:userId`
-- `GET /my-et`
-- `GET /news`
-- `GET /article`
-- `GET /summarize`
-- `POST /summarize`
-- `POST /chat`
-- `POST /navigator`
-- `POST /story-arc`
-- `POST /vernacular`
-- `POST /video-studio`
-- `GET /history/summaries`
-- `GET /history/chats`
+- GET /news
+- GET /article
+- GET or POST /summarize
+- POST /chat
+- POST /navigator
+- POST /story-arc
+- POST /vernacular
+- POST /video-studio
+- GET /history/summaries
+- GET /history/chats
 
-## Data and Media
+## Build and Commit History
 
-- SQLite database defaults to: `backend/data/ai-news.db`
-- Generated media files are written under: `backend/media/`
+Recent commits:
 
-## Notes
+```text
+1ac69fa (HEAD -> master, origin/master) final changes
+deb7c02 readme
+d14f811 hello git
+```
 
-- Video Studio runs in `storyboard` mode by default (Groq script + TTS + slide-style visual rendering).
-- The frontend includes a `Watch AI Brief` auto-play mode with browser speech synthesis for quick previews.
-- If ffmpeg or TTS fails, the backend falls back gracefully and returns an explanatory note.
-- Keep backend and frontend in separate folders as currently structured.
+Useful history commands:
+
+```bash
+git log --oneline --decorate -n 20
+git show --name-only <commit>
+```
+
+Recommended commit prefixes:
+- feat
+- fix
+- build
+- docs
+
+## Common Issues
+
+### Backend does not start
+
+Cause:
+- Running node server.js from repository root.
+
+Fix:
+
+```bash
+cd backend
+node server.js
+```
+
+### Frontend cannot connect to API
+
+Cause:
+- Backend is not running.
+- Frontend is pointing to wrong API base.
+
+Fix:
+- Start backend from backend/.
+- Verify VITE_API_BASE (if set).
+
+### Vite runs on a different port
+
+Cause:
+- 5173 is occupied.
+
+Fix:
+- Use the exact URL printed by Vite (for example 5174).
+
+### AI route failures
+
+Cause:
+- Missing or invalid GROQ_API_KEY.
+
+Fix:
+- Update backend/.env and restart backend.
