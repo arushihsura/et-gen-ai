@@ -1,46 +1,18 @@
-import { useMemo, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ArrowRight, Circle, Shield, TrendingUp } from "lucide-react";
+import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
-
-const initialProfile = {
-  persona: "Mutual fund investor",
-  sectors: "banking,it,energy",
-  interests: "budget,earnings,valuation",
-  portfolioSymbols: "HDFC,TCS",
-  riskAppetite: "medium",
-  horizon: "long-term"
-};
 
 export default function DashboardPage() {
   const { userId } = useOutletContext();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState(initialProfile);
+  const [searchParams] = useSearchParams();
+  const query = String(searchParams.get("q") || "").trim().toLowerCase();
   const [feed, setFeed] = useState([]);
-  const [activeTab, setActiveTab] = useState("For You");
+  const [activeTab, setActiveTab] = useState("Trending");
   const [status, setStatus] = useState("");
-  const tabs = ["For You", "Markets", "Startups", "Explainers", "Videos"];
-
-  const onProfileChange = (key, value) => {
-    setProfile((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const saveProfile = async () => {
-    if (!userId.trim()) {
-      setStatus("User ID is required.");
-      return;
-    }
-
-    try {
-      setStatus("Saving profile...");
-      await apiFetch("/profile", {
-        method: "POST",
-        body: JSON.stringify({ userId, ...profile })
-      });
-      setStatus("Profile saved.");
-    } catch (error) {
-      setStatus(error.message);
-    }
-  };
+  const [loading, setLoading] = useState(false);
+  const tabs = ["Trending", "Markets", "Economy", "Policy", "Earnings"];
 
   const loadFeed = async () => {
     if (!userId.trim()) {
@@ -49,118 +21,122 @@ export default function DashboardPage() {
     }
 
     try {
+      setLoading(true);
       setStatus("Loading personalized feed...");
-      const data = await apiFetch(`/my-et?userId=${encodeURIComponent(userId)}`);
+      const data = await apiFetch(`/my-et?userId=${encodeURIComponent(userId)}&limit=30`);
       setFeed(data.feed || []);
       setStatus("Feed ready.");
     } catch (error) {
-      setStatus(error.message);
+      try {
+        const fallback = await apiFetch("/news");
+        const mapped = (fallback || []).slice(0, 30).map((item) => ({
+          ...item,
+          score: 1,
+          tone: "neutral",
+          why_this_is_for_you: ["Create a profile to personalize this feed"]
+        }));
+        setFeed(mapped);
+        setStatus("Showing general trending feed. Save profile for personalization.");
+      } catch (nestedError) {
+        setStatus(error.message || nestedError.message);
+      }
+    } finally {
+      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadFeed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  useEffect(() => {
+    const onProfileUpdated = (event) => {
+      const changedUserId = event?.detail?.userId;
+      if (!changedUserId || changedUserId === userId) {
+        loadFeed();
+      }
+    };
+
+    window.addEventListener("profile-updated", onProfileUpdated);
+    return () => window.removeEventListener("profile-updated", onProfileUpdated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   const pulse = useMemo(() => {
     const riskyCount = feed.filter((item) => item.tone === "risky").length;
     if (riskyCount >= 3) {
-      return { label: "High Volatility", color: "risk-red", dot: "🔴" };
+      return { label: "High Volatility", color: "risk-red", Icon: AlertTriangle };
     }
     if (riskyCount >= 1) {
-      return { label: "Mixed Signal", color: "risk-yellow", dot: "🟡" };
+      return { label: "Mixed Signal", color: "risk-yellow", Icon: Shield };
     }
-    return { label: "Stable", color: "risk-green", dot: "🟢" };
+    return { label: "Stable", color: "risk-green", Icon: TrendingUp };
   }, [feed]);
 
   const filteredFeed = useMemo(() => {
-    if (activeTab === "For You") {
-      return feed;
+    if (activeTab === "Trending") {
+      if (!query) {
+        return feed;
+      }
+
+      return feed.filter((item) => String(item.title || "").toLowerCase().includes(query));
     }
 
     const patterns = {
       Markets: /(market|sensex|nifty|fii|dii|stocks|shares|volatility)/i,
-      Startups: /(startup|funding|venture|founder|unicorn)/i,
-      Explainers: /(explainer|why|what|how|guide|ratio|analysis)/i,
-      Videos: /(video|watch|clip|studio)/i
+      Economy: /(economy|gdp|inflation|rbi|fiscal|rupee|budget)/i,
+      Policy: /(policy|government|union budget|regulation|tax|bill)/i,
+      Earnings: /(profit|earnings|results|quarter|guidance|margin)/i
     };
 
     const pattern = patterns[activeTab];
-    return feed.filter((item) => pattern?.test(item.title));
-  }, [activeTab, feed]);
+    const scoped = feed.filter((item) => pattern?.test(item.title));
+    if (!query) {
+      return scoped;
+    }
+
+    return scoped.filter((item) => String(item.title || "").toLowerCase().includes(query));
+  }, [activeTab, feed, query]);
 
   const cardMeta = (item) => {
     if (item.tone === "risky") {
-      return { flag: "HIGH RISK", dot: "🔴", action: "HOLD" };
+      return { flag: "HIGH RISK", Icon: AlertTriangle, action: "HOLD", confidence: "Medium", toneClass: "risk-red" };
     }
 
     if (item.tone === "positive") {
-      return { flag: "OPPORTUNITY", dot: "🟡", action: "WATCH" };
+      return { flag: "OPPORTUNITY", Icon: TrendingUp, action: "WATCH", confidence: "High", toneClass: "risk-green" };
     }
 
-    return { flag: "LONG TERM", dot: "🟢", action: "EXPLORE" };
+    return { flag: "BALANCED", Icon: Circle, action: "REVIEW", confidence: "Medium", toneClass: "risk-yellow" };
   };
 
-  const openArticleIntelligence = (item) => {
-    navigate(`/article?url=${encodeURIComponent(item.url)}&mode=detailed`);
+  const openArticleIntelligence = async (item) => {
+    navigate(`/briefings?url=${encodeURIComponent(item.url)}&title=${encodeURIComponent(item.title)}&mode=detailed`);
+  };
+
+  const openStoryArc = (item) => {
+    navigate(`/story-arc?topic=${encodeURIComponent(item.title || "Business story")}&url=${encodeURIComponent(item.url || "")}`);
   };
 
   return (
-    <section className="panel-grid">
-      <article className="panel panel-span hero-home">
-        <p className="welcome">Good Evening, Aru</p>
-        <p className={`market-pulse ${pulse.color}`}>
-          Market Pulse: {pulse.dot} {pulse.label}
-        </p>
+    <section className="signalx-home">
+      <article className="signalx-home-hero">
+        <div>
+          <p className="signalx-hero-kicker">Trending For You</p>
+          <h2>Personalized market intelligence built from your interests</h2>
+          <p className="tiny">Click any signal card to open a unified AI briefing with navigator, vernacular, and video actions.</p>
+        </div>
+        <div className={`signalx-pulse ${pulse.color}`}>
+          <pulse.Icon size={16} />
+          <strong>{pulse.label}</strong>
+        </div>
       </article>
 
-      <article className="panel">
+      <article className="panel panel-span signalx-home-feed">
         <div className="panel-head">
-          <h2>Profile Setup</h2>
-          <button onClick={saveProfile}>Save Profile</button>
-        </div>
-        <div className="fields">
-          <label>
-            Persona
-            <input value={profile.persona} onChange={(e) => onProfileChange("persona", e.target.value)} />
-          </label>
-          <label>
-            Sectors
-            <input value={profile.sectors} onChange={(e) => onProfileChange("sectors", e.target.value)} />
-          </label>
-          <label>
-            Interests
-            <input value={profile.interests} onChange={(e) => onProfileChange("interests", e.target.value)} />
-          </label>
-          <label>
-            Portfolio Symbols
-            <input
-              value={profile.portfolioSymbols}
-              onChange={(e) => onProfileChange("portfolioSymbols", e.target.value)}
-            />
-          </label>
-          <label>
-            Risk Appetite
-            <select
-              value={profile.riskAppetite}
-              onChange={(e) => onProfileChange("riskAppetite", e.target.value)}
-            >
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </label>
-          <label>
-            Horizon
-            <select value={profile.horizon} onChange={(e) => onProfileChange("horizon", e.target.value)}>
-              <option value="short-term">short-term</option>
-              <option value="long-term">long-term</option>
-            </select>
-          </label>
-        </div>
-        <p className="status">{status}</p>
-      </article>
-
-      <article className="panel panel-span">
-        <div className="panel-head">
-          <h2>AI Personalized Newsroom</h2>
-          <button onClick={loadFeed}>Load Feed</button>
+          <h2>Trending News Based On Your Profile</h2>
+          <button onClick={loadFeed} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button>
         </div>
 
         <div className="tab-row">
@@ -175,20 +151,47 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="swipe-feed">
-          {filteredFeed.map((item) => {
+        <div className="signalx-card-grid">
+          {filteredFeed.map((item, idx) => {
             const meta = cardMeta(item);
+            const why = (item.why_this_is_for_you || []).slice(0, 2).join(" • ") || "General market relevance";
 
             return (
-              <button className="feed-item swipe-card" key={item.url} onClick={() => openArticleIntelligence(item)}>
-                <p className="risk-line">{meta.dot} {meta.flag}</p>
-                <h3>{item.title}</h3>
-                <p className="decision-line">→ {meta.action}</p>
-                <p className="tiny">→ Affects your: {(item.why_this_is_for_you || []).slice(0, 2).join(" + ")}</p>
-              </button>
+              <div className="signalx-news-card" key={item.url || idx}>
+                {item.image && (
+                  <img src={item.image} alt={item.title} className="signalx-news-image" />
+                )}
+                <div className="signalx-news-content">
+                  <p className={`signalx-news-risk ${meta.toneClass}`}>
+                    <meta.Icon size={14} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />
+                    {meta.flag}
+                  </p>
+                  <h3>{item.title}</h3>
+                  <p className="signalx-news-decision">{meta.action} • {meta.confidence} Confidence</p>
+                  <p className="tiny">Affects: {why}</p>
+                  <div className="signalx-news-actions">
+                    <button className="signalx-open-briefing" onClick={() => openArticleIntelligence(item)}>
+                      Open AI Briefing
+                    </button>
+                    <button className="signalx-open-briefing" onClick={() => openStoryArc(item)}>
+                      View Story Arc <ArrowRight size={14} style={{ marginLeft: 6 }} />
+                    </button>
+                    <a 
+                      href={item.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="signalx-open-original"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Read Article <ArrowRight size={14} style={{ marginLeft: 6 }} />
+                    </a>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
+        {status ? <p className="status">{status}</p> : null}
       </article>
     </section>
   );

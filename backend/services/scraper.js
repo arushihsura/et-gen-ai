@@ -30,12 +30,46 @@ $("a").each((i, el) => {
       seen.add(fullUrl);
       articles.push({
         title,
-        url: fullUrl
+        url: fullUrl,
+        image: null
       });
     }
   }
 });
-  return articles.slice(0, 10);
+
+// Fetch images for each article
+const articlesWithImages = await Promise.all(
+  articles.map(async (article) => {
+    try {
+      const { data: articleData } = await axios.get(article.url, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      const $article = cheerio.load(articleData);
+      
+      // Try multiple image selectors common in ET articles
+      let imageUrl = 
+        $article("img.artimg").attr("src") ||
+        $article("img[class*='article']").attr("src") ||
+        $article("figure img").attr("src") ||
+        $article("div[class*='image'] img").attr("src") ||
+        $article("meta[property='og:image']").attr("content") ||
+        null;
+      
+      // Convert relative URLs to absolute
+      if (imageUrl && !imageUrl.startsWith("http")) {
+        imageUrl = imageUrl.startsWith("/") 
+          ? "https://economictimes.indiatimes.com" + imageUrl
+          : "https://economictimes.indiatimes.com/" + imageUrl;
+      }
+      
+      return { ...article, image: imageUrl };
+    } catch (err) {
+      return article;
+    }
+  })
+);
+
+  return articlesWithImages.slice(0, 30);
 };
 
 exports.getArticleContent = async (url, options = {}) => {

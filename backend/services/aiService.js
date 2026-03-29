@@ -241,3 +241,47 @@ exports.summarize = async (text) => {
     throw new Error(providerMessage);
   }
 };
+
+exports.generateScript = async (text) => {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY in .env");
+  }
+
+  if (!text || !String(text).trim()) {
+    throw new Error("No content provided for script generation");
+  }
+
+  const trimmedText = String(text).slice(0, 4000);
+
+  const videoScriptModel = process.env.GROQ_VIDEO_MODEL || groqModel || "llama-3.1-8b-instant";
+
+  const res = await groq.chat.completions.create({
+    model: videoScriptModel,
+    temperature: 0.4,
+    messages: [
+      {
+        role: "user",
+        content: `
+Convert this news into a 60-second video script.
+
+Format:
+- Hook (1 line)
+- 3 key points
+- Conclusion
+
+Keep it engaging and simple.
+
+Article:
+${trimmedText}
+`
+      }
+    ]
+  });
+
+  const content = res.choices?.[0]?.message?.content;
+  if (!content || !content.trim()) {
+    throw new Error("Failed to generate video script");
+  }
+
+  return content.trim();
+};

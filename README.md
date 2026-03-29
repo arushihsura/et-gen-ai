@@ -38,6 +38,7 @@ DB_PATH=
 
 Notes:
 - `GROQ_API_KEY` is required for AI features.
+- Video Studio uses Groq for script generation and free Google TTS for narration.
 - `DB_PATH` is optional. If empty, the app uses `backend/data/ai-news.db`.
 - Frontend API target defaults to `http://localhost:5000`.
 - To override frontend API base URL, set `VITE_API_BASE` in frontend env.
@@ -126,5 +127,7 @@ Base URL: `http://localhost:5000`
 
 ## Notes
 
-- If ffmpeg/TTS fails in video generation, the backend falls back to silent video output.
+- Video Studio runs in `storyboard` mode by default (Groq script + TTS + slide-style visual rendering).
+- The frontend includes a `Watch AI Brief` auto-play mode with browser speech synthesis for quick previews.
+- If ffmpeg or TTS fails, the backend falls back gracefully and returns an explanatory note.
 - Keep backend and frontend in separate folders as currently structured.

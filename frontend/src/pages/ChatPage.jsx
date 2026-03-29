@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 
@@ -69,7 +70,7 @@ export default function ChatPage() {
 
         {answer ? (
           <div className="result-box">
-            <p className="risk-red">Risk: 🔴 High</p>
+            <p className="risk-red"><AlertTriangle size={14} style={{ marginRight: 6, verticalAlign: "text-bottom" }} />Risk: High</p>
             <h3>Assistant Reply</h3>
             <p>{answer}</p>
           </div>

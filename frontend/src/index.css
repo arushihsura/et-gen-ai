@@ -1,16 +1,27 @@
-:root {
-  --bg: #0f0f0f;
-  --card: #1a1a1a;
-  --ink: #f4f4f4;
-  --muted: #9a9a9a;
-  --brand: #e8d8a9;
-  --line: #2b2b2b;
-  --shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+:root,
+:root[data-theme="light"] {
+  --bg: #f2f5fa;
+  --card: #ffffff;
+  --ink: #0f172a;
+  --muted: #546174;
+  --brand: #2563eb;
+  --line: #d2dbe7;
+  --shadow: 0 12px 28px rgba(20, 39, 75, 0.08);
   --risk-high: #d0392f;
-  --risk-medium: #d9a40d;
+  --risk-medium: #c8900a;
   --risk-low: #2e8b57;
   --serif: "Instrument Serif", Georgia, serif;
   --sans: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  --bg: #090e18;
+  --card: #111827;
+  --ink: #e8edf8;
+  --muted: #94a3b8;
+  --brand: #7aa2ff;
+  --line: #263247;
+  --shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -27,8 +38,9 @@ body,
 body {
   font-family: var(--sans);
   color: var(--ink);
-  background: radial-gradient(circle at 10% 10%, #2a1f15 0%, transparent 35%),
-    radial-gradient(circle at 90% 20%, #17332f 0%, transparent 38%),
+  background: radial-gradient(circle at 0% 0%, rgba(56, 128, 255, 0.16) 0%, transparent 38%),
+    radial-gradient(circle at 100% 0%, rgba(73, 202, 159, 0.12) 0%, transparent 34%),
+    radial-gradient(circle at 50% 100%, rgba(37, 99, 235, 0.08) 0%, transparent 42%),
     var(--bg);
   line-height: 1.45;
 }

@@ -4,9 +4,10 @@ const Groq = require("groq-sdk");
 require("dotenv").config();
 
 const { getETHeadlines, getArticleContent } = require("./services/scraper");
-const { summarize } = require("./services/aiService");
+const { summarize, generateScript } = require("./services/aiService");
 const {
   buildNavigatorBriefing,
+  buildNavigatorFollowUp,
   buildStoryArc,
   buildVernacularInsight,
   buildVideoStudioScript
@@ -23,6 +24,42 @@ const {
 } = require("./services/db");
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const groqChatModel = process.env.GROQ_CHAT_MODEL || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+const navigatorCache = new Map();
+const NAVIGATOR_CACHE_TTL_MS = 15 * 60 * 1000;
+
+const buildNavigatorCacheKey = ({ userId, topic, urls, mode }) => {
+  const normalizedUrls = Array.isArray(urls)
+    ? urls.map((item) => String(item || "").trim()).filter(Boolean).sort()
+    : [];
+
+  return JSON.stringify({
+    userId: String(userId || "guest"),
+    topic: String(topic || "").trim().toLowerCase(),
+    urls: normalizedUrls,
+    mode: String(mode || "detailed")
+  });
+};
+
+const getNavigatorCache = (key) => {
+  const hit = navigatorCache.get(key);
+  if (!hit) {
+    return null;
+  }
+
+  if (Date.now() - hit.createdAt > NAVIGATOR_CACHE_TTL_MS) {
+    navigatorCache.delete(key);
+    return null;
+  }
+
+  return hit.payload;
+};
+
+const setNavigatorCache = (key, payload) => {
+  navigatorCache.set(key, {
+    createdAt: Date.now(),
+    payload
+  });
+};
 
 const ensureList = (value = []) => {
   if (Array.isArray(value)) {
@@ -67,9 +104,187 @@ const getToneFromTitle = (title = "") => {
   return "neutral";
 };
 
+const SENTIMENT_LEXICON = {
+  positive: [
+    "surge",
+    "rally",
+    "gain",
+    "growth",
+    "beat",
+    "record",
+    "profit",
+    "rise",
+    "upside",
+    "improve",
+    "expands"
+  ],
+  negative: [
+    "fall",
+    "slump",
+    "drop",
+    "miss",
+    "loss",
+    "risk",
+    "volatile",
+    "uncertain",
+    "decline",
+    "cuts",
+    "slowdown"
+  ]
+};
+
+const toArticleSentiment = (article = {}, ref = 1) => {
+  const title = String(article.title || "");
+  const content = String(article.content || "");
+  const text = `${title} ${content}`.toLowerCase();
+
+  const positiveHits = SENTIMENT_LEXICON.positive.filter((word) => text.includes(word)).length;
+  const negativeHits = SENTIMENT_LEXICON.negative.filter((word) => text.includes(word)).length;
+
+  let sentiment = "Neutral";
+  if (positiveHits > negativeHits) {
+    sentiment = "Positive";
+  } else if (negativeHits > positiveHits) {
+    sentiment = "Negative";
+  }
+
+  const confidence = Math.max(positiveHits, negativeHits) >= 3
+    ? "High"
+    : Math.max(positiveHits, negativeHits) === 2
+      ? "Medium"
+      : "Low";
+
+  const reason = sentiment === "Neutral"
+    ? "Mixed or limited directional cues in this article."
+    : sentiment === "Positive"
+      ? `Positive cues (${positiveHits}) outweighed negative cues (${negativeHits}).`
+      : `Negative cues (${negativeHits}) outweighed positive cues (${positiveHits}).`;
+
+  return {
+    source_ref: ref,
+    title,
+    url: String(article.url || ""),
+    sentiment,
+    confidence,
+    reason
+  };
+};
+
+const buildFallbackStoryArc = ({ topic, articles = [] }) => {
+  const top = articles.slice(0, 5);
+  const timeline = top.map((article, index) => ({
+    time_label: `Step ${index + 1}`,
+    event: String(article.title || `Source ${index + 1}`),
+    impact: "Signal extracted from recent coverage"
+  }));
+
+  const sentimentTrail = top.map((article, index) => {
+    const localSentiment = toArticleSentiment(article, index + 1);
+    return {
+      time_label: `Step ${index + 1}`,
+      sentiment: localSentiment.sentiment,
+      reason: localSentiment.reason || "Derived from lexical sentiment fallback"
+    };
+  });
+
+  const keyEntities = {
+    countries: [],
+    companies: [],
+    people: [],
+    sectors: []
+  };
+
+  return {
+    topic: String(topic || "Market Narrative").trim() || "Market Narrative",
+    story_title: "Coverage Narrative (Fallback)",
+    timeline,
+    key_players: [],
+    key_entities: keyEntities,
+    sentiment_trail: sentimentTrail,
+    sentiment_shift: sentimentTrail.length > 0
+      ? `${sentimentTrail[sentimentTrail.length - 1].sentiment} (fallback)`
+      : "Neutral (fallback)",
+    contrarian_view: "Provider unavailable. Use source-level evidence and verify with fresh updates.",
+    contrarian_views: [
+      "Cross-check each claim against multiple market sources before acting."
+    ],
+    watch_next: [
+      "Policy updates",
+      "Earnings revisions",
+      "Liquidity and volatility shifts"
+    ],
+    predictions: [
+      "Short-term uncertainty may persist until new directional catalysts emerge."
+    ],
+    fallback: true
+  };
+};
+
+const tokenize = (value = "") => {
+  return String(value)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
+
+const PERSONA_KEYWORDS = {
+  founder: [
+    "startup",
+    "founder",
+    "vc",
+    "funding",
+    "ipo",
+    "ai",
+    "policy",
+    "regulation",
+    "competition",
+    "acquisition"
+  ],
+  student: [
+    "education",
+    "edtech",
+    "career",
+    "learning",
+    "internship",
+    "skill",
+    "startup",
+    "technology",
+    "economy"
+  ],
+  investor: [
+    "market",
+    "stocks",
+    "shares",
+    "nifty",
+    "sensex",
+    "earnings",
+    "valuation",
+    "fund",
+    "returns",
+    "ipo"
+  ]
+};
+
+const getPersonaKeywords = (persona = "") => {
+  const normalized = String(persona).trim().toLowerCase();
+  if (!normalized) {
+    return [];
+  }
+
+  for (const [key, keywords] of Object.entries(PERSONA_KEYWORDS)) {
+    if (normalized.includes(key)) {
+      return keywords;
+    }
+  }
+
+  return tokenize(persona);
+};
+
 const rankArticleForProfile = (article, profile) => {
   const title = String(article.title || "");
   const titleLower = title.toLowerCase();
+  const titleTokens = new Set(tokenize(title));
   let score = 1;
   const reasons = [];
 
@@ -95,9 +310,17 @@ const rankArticleForProfile = (article, profile) => {
     reasons.push(`Connected to your portfolio: ${matchedSymbols.join(", ")}`);
   }
 
-  if (profile.persona && titleLower.includes(profile.persona.toLowerCase())) {
-    score += 2;
-    reasons.push(`Useful for your persona: ${profile.persona}`);
+  const personaKeywords = getPersonaKeywords(profile.persona);
+  const matchedPersonaKeywords = personaKeywords.filter((keyword) => {
+    const normalizedKeyword = keyword.toLowerCase();
+    return titleLower.includes(normalizedKeyword) || titleTokens.has(normalizedKeyword);
+  });
+
+  if (matchedPersonaKeywords.length > 0) {
+    score += matchedPersonaKeywords.length * 2;
+    reasons.push(`Relevant for ${profile.persona}: ${matchedPersonaKeywords.slice(0, 3).join(", ")}`);
+  } else if (profile.persona) {
+    reasons.push(`Prioritized for ${profile.persona} profile`);
   }
 
   const tone = getToneFromTitle(title);
@@ -187,10 +410,29 @@ const toArticleBundleFromUrls = async (urls = [], mode = "brief") => {
 
 const toArticleBundleFromFeed = async (topic = "", mode = "brief") => {
   const headlines = await getETHeadlines();
-  const topicLower = topic.toLowerCase();
-  const candidates = headlines
+  const topicLower = String(topic || "").toLowerCase().trim();
+  const topicTokens = topicLower
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4)
+    .slice(0, 6);
+
+  let candidates = headlines
     .filter((item) => !topicLower || item.title.toLowerCase().includes(topicLower))
     .slice(0, 8);
+
+  if (candidates.length === 0 && topicTokens.length > 0) {
+    candidates = headlines
+      .filter((item) => {
+        const titleLower = item.title.toLowerCase();
+        return topicTokens.some((token) => titleLower.includes(token));
+      })
+      .slice(0, 8);
+  }
+
+  if (candidates.length === 0) {
+    candidates = headlines.slice(0, 8);
+  }
 
   const bundles = await Promise.all(
     candidates.map(async (item) => {
@@ -252,6 +494,7 @@ app.get("/profile/:userId", async (req, res) => {
 app.get("/my-et", async (req, res) => {
   try {
     const userId = String(req.query.userId || "").trim();
+    const limit = parseLimit(req.query.limit, 30);
 
     if (!userId) {
       return res.status(400).json({ error: "Missing userId query parameter" });
@@ -266,11 +509,12 @@ app.get("/my-et", async (req, res) => {
     const personalizedStories = headlines
       .map((article) => rankArticleForProfile(article, profile))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .slice(0, limit);
 
     return res.json({
       userId,
       persona: profile.persona || "general",
+      limit,
       feed: personalizedStories
     });
   } catch (error) {
@@ -299,6 +543,45 @@ const resolveContent = async ({ content, url, mode }) => {
   }
 
   return null;
+};
+
+const toSlideLines = (text = "") => {
+  return String(text)
+    .split("\n")
+    .map((line) => line.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter(Boolean);
+};
+
+const buildSlidesFromScript = (script = "") => {
+  const lines = toSlideLines(script);
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const hook = lines[0] || "Top market update";
+  const body = lines.slice(1, 6);
+  const conclusion = lines[lines.length - 1] || "Stay informed for the next move.";
+
+  const slides = [
+    {
+      title: hook,
+      subtitle: "60-sec AI Brief"
+    }
+  ];
+
+  body.forEach((line, idx) => {
+    slides.push({
+      title: `Point ${idx + 1}`,
+      subtitle: line
+    });
+  });
+
+  slides.push({
+    title: "What this means",
+    subtitle: conclusion
+  });
+
+  return slides.slice(0, 6);
 };
 
 app.get("/summarize", async (req, res) => {
@@ -399,8 +682,16 @@ app.post("/chat", async (req, res) => {
 app.post("/navigator", async (req, res) => {
   try {
     const userId = getUserIdFromRequest(req);
-    const { topic, urls = [], mode = "detailed" } = req.body || {};
+    const { topic, urls = [], mode = "detailed", forceRefresh = false } = req.body || {};
     const profile = await getProfileByUserId(userId);
+
+    const cacheKey = buildNavigatorCacheKey({ userId, topic, urls, mode });
+    if (!forceRefresh) {
+      const cached = getNavigatorCache(cacheKey);
+      if (cached) {
+        return res.json({ ...cached, cached: true });
+      }
+    }
 
     let articles = await toArticleBundleFromUrls(urls, mode);
     if (articles.length === 0) {
@@ -417,13 +708,57 @@ app.post("/navigator", async (req, res) => {
       userProfile: profile || { userId, persona: "general" }
     });
 
-    return res.json({
+    const sourceMap = articles.map((article, index) => ({
+      ref: index + 1,
+      title: article.title,
+      url: article.url,
+      snippet: String(article.content || "").replace(/\s+/g, " ").trim().slice(0, 220)
+    }));
+
+    const payload = {
       userId,
-      sources: articles.map((a) => ({ title: a.title, url: a.url })),
-      briefing
-    });
+      topic: briefing.topic || topic || "Business update",
+      source_count: sourceMap.length,
+      source_map: sourceMap,
+      sources: sourceMap.map((item) => ({ title: item.title, url: item.url })),
+      briefing,
+      cached: false
+    };
+
+    setNavigatorCache(cacheKey, payload);
+
+    return res.json(payload);
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to generate navigator briefing" });
+  }
+});
+
+app.post("/navigator/ask", async (req, res) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const { topic, briefing, source_map: sourceMap = [], question, selected_section: selectedSection } = req.body || {};
+
+    if (!question || !String(question).trim()) {
+      return res.status(400).json({ error: "Missing question for follow-up." });
+    }
+
+    if (!briefing || typeof briefing !== "object") {
+      return res.status(400).json({ error: "Missing briefing context for follow-up." });
+    }
+
+    const profile = await getProfileByUserId(userId);
+    const answer = await buildNavigatorFollowUp({
+      topic,
+      briefing,
+      question: String(question).trim(),
+      selectedSection,
+      sourceMap,
+      userProfile: profile || { userId, persona: "general" }
+    });
+
+    return res.json(answer);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to answer navigator follow-up" });
   }
 });
 
@@ -440,31 +775,144 @@ app.post("/story-arc", async (req, res) => {
       return res.status(400).json({ error: "Unable to build story arc context from available coverage." });
     }
 
-    const arc = await buildStoryArc({ topic, articles });
+    let arc;
+    try {
+      arc = await buildStoryArc({ topic, articles });
+    } catch (providerError) {
+      console.error("[story-arc] Provider failure, using fallback arc:", providerError?.message || providerError);
+      arc = buildFallbackStoryArc({ topic, articles });
+    }
+    const fallbackArticleSentiments = articles.map((article, index) => toArticleSentiment(article, index + 1));
+    const normalizedArticleSentiments = Array.isArray(arc?.article_sentiments)
+      ? arc.article_sentiments
+        .map((item, index) => ({
+          source_ref: Number.parseInt(item?.source_ref, 10) || index + 1,
+          title: String(item?.title || articles[index]?.title || `Source ${index + 1}`),
+          url: String(item?.url || articles[index]?.url || ""),
+          sentiment: String(item?.sentiment || fallbackArticleSentiments[index]?.sentiment || "Neutral"),
+          confidence: String(item?.confidence || fallbackArticleSentiments[index]?.confidence || "Low"),
+          reason: String(item?.reason || fallbackArticleSentiments[index]?.reason || "")
+        }))
+        .slice(0, articles.length)
+      : fallbackArticleSentiments;
+
     return res.json({
       sources: articles.map((a) => ({ title: a.title, url: a.url })),
-      arc
+      arc: {
+        ...arc,
+        article_sentiments: normalizedArticleSentiments
+      }
     });
   } catch (error) {
+    console.error("[story-arc] Route failure:", error?.stack || error?.message || error);
     return res.status(500).json({ error: error.message || "Failed to generate story arc" });
+  }
+});
+
+app.post("/story-arc/ask", async (req, res) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+    const { question, arc, topic, sources = [] } = req.body || {};
+
+    const cleanQuestion = String(question || "").trim();
+    if (!cleanQuestion) {
+      return res.status(400).json({ error: "Missing question for story arc follow-up." });
+    }
+
+    if (!arc || typeof arc !== "object") {
+      return res.status(400).json({ error: "Missing story arc context for follow-up." });
+    }
+
+    const sourceList = Array.isArray(sources)
+      ? sources.map((item, idx) => {
+        if (typeof item === "string") {
+          return { ref: idx + 1, title: `Source ${idx + 1}`, url: item };
+        }
+
+        return {
+          ref: idx + 1,
+          title: String(item?.title || `Source ${idx + 1}`),
+          url: String(item?.url || "")
+        };
+      }).filter((item) => item.url)
+      : [];
+
+    const profile = await getProfileByUserId(userId);
+
+    const response = await groq.chat.completions.create({
+      model: groqChatModel,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content: "You are a financial intelligence assistant. Answer using the provided story arc only. Be concise, practical, and mention uncertainty when evidence is weak."
+        },
+        {
+          role: "user",
+          content: `User profile:\n${JSON.stringify(profile || { userId, persona: "general" }, null, 2)}\n\nStory topic: ${topic || arc?.story_title || arc?.topic || "Business story"}\n\nStory arc JSON:\n${JSON.stringify(arc, null, 2)}\n\nSources:\n${JSON.stringify(sourceList, null, 2)}\n\nQuestion:\n${cleanQuestion}\n\nReturn JSON only with keys:\n{\n  "answer": "3-6 concise lines",\n  "confidence": "Low/Medium/High",\n  "follow_up_questions": ["...", "..."]\n}`
+        }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(response.choices?.[0]?.message?.content || "{}");
+    } catch (error) {
+      parsed = { answer: response.choices?.[0]?.message?.content || "No answer generated.", confidence: "Low", follow_up_questions: [] };
+    }
+
+    return res.json({
+      answer: String(parsed.answer || "No answer generated."),
+      confidence: String(parsed.confidence || "Low"),
+      follow_up_questions: Array.isArray(parsed.follow_up_questions) ? parsed.follow_up_questions.slice(0, 4) : []
+    });
+  } catch (error) {
+    const providerMessage = error?.error?.error?.message || error?.message || "Failed to answer story arc question";
+    return res.status(500).json({ error: providerMessage });
   }
 });
 
 app.post("/vernacular", async (req, res) => {
   try {
-    const { text, url, language = "Hindi", audience = "Retail investor", mode = "detailed" } = req.body || {};
+    const startedAt = Date.now();
+    const { text, url, language = "Hindi", audience = "Retail investor", mode = "detailed", structured } = req.body || {};
+    const supportedLanguages = ["Hindi", "Tamil", "Telugu", "Bengali"];
+    const normalizedLanguage = String(language || "Hindi").trim();
+
+    if (!supportedLanguages.includes(normalizedLanguage)) {
+      return res.status(400).json({
+        error: "Unsupported language. Use one of: Hindi, Tamil, Telugu, Bengali."
+      });
+    }
 
     let sourceText = String(text || "").trim();
     if (!sourceText && typeof url === "string" && url.trim()) {
       sourceText = (await getArticleContent(url.trim(), { mode })) || "";
     }
 
+    // If structured data provided, use it; otherwise fall back to text
+    if (structured && typeof structured === "object" && Object.keys(structured).length > 0) {
+      const localized = await buildVernacularInsight({ language: normalizedLanguage, audience, structured });
+      return res.json({
+        ...localized,
+        translation_mode: "structured",
+        generated_at: new Date().toISOString(),
+        latency_ms: Date.now() - startedAt
+      });
+    }
+
     if (!sourceText) {
       return res.status(400).json({ error: "Missing text or valid article url for vernacular adaptation." });
     }
 
-    const localized = await buildVernacularInsight({ text: sourceText, language, audience });
-    return res.json(localized);
+    const localized = await buildVernacularInsight({ text: sourceText, language: normalizedLanguage, audience });
+    return res.json({
+      ...localized,
+      translation_mode: "text",
+      generated_at: new Date().toISOString(),
+      latency_ms: Date.now() - startedAt
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to generate vernacular output" });
   }
@@ -472,7 +920,16 @@ app.post("/vernacular", async (req, res) => {
 
 app.post("/video-studio", async (req, res) => {
   try {
-    const { title, text, url, durationSec = 90, mode = "detailed", showSubtitles = false, language = "English" } = req.body || {};
+    const {
+      title,
+      text,
+      url,
+      durationSec = 90,
+      mode = "detailed",
+      showSubtitles = false,
+      language = "English",
+      renderEngine = "storyboard"
+    } = req.body || {};
 
     let sourceText = String(text || "").trim();
     if (!sourceText && typeof url === "string" && url.trim()) {
@@ -498,17 +955,47 @@ app.post("/video-studio", async (req, res) => {
       script,
       durationSec: Number(durationSec) || 90,
       showSubtitles: Boolean(showSubtitles),
-      language: ttsLang
+      language: ttsLang,
+      renderEngine
     });
 
     return res.json({
       ...script,
       video_url: render.relativeUrl,
       with_audio: render.withAudio,
-      audio_error: render.audioError
+      audio_error: render.audioError,
+      render_engine: render.renderEngine,
+      visual_error: render.visualError,
+      scenes: Array.isArray(render.scenes) ? render.scenes : []
     });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to generate video" });
+  }
+});
+
+app.post("/video-script", async (req, res) => {
+  try {
+    const { text, url, mode = "detailed" } = req.body || {};
+    const sourceText = await resolveContent({
+      content: String(text || "").trim(),
+      url,
+      mode
+    });
+
+    if (!sourceText) {
+      return res.status(400).json({ error: "Missing text or valid article url for script generation." });
+    }
+
+    const script = await generateScript(sourceText);
+    const slides = buildSlidesFromScript(script);
+
+    return res.json({
+      script,
+      slides,
+      slide_duration_ms: 3000
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to generate script" });
   }
 });
 
